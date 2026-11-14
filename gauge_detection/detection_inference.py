@@ -1,5 +1,13 @@
 from ultralytics import YOLO
 
+_DETECTION_MODELS = {}
+
+
+def get_detection_model(model_path='best.pt'):
+    if model_path not in _DETECTION_MODELS:
+        _DETECTION_MODELS[model_path] = YOLO(model_path)
+    return _DETECTION_MODELS[model_path]
+
 
 def detection_gauge_face(img, model_path='best.pt'):
     '''
@@ -8,7 +16,7 @@ def detection_gauge_face(img, model_path='best.pt'):
     :param model_path: path to yolov8 detection model
     :return: highest confidence box for further processing and list of all boxes for visualization
     '''
-    model = YOLO(model_path)  # load model
+    model = get_detection_model(model_path)
 
     results = model(img)  # run inference, detects gauge face and needle
 

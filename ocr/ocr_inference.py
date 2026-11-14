@@ -4,35 +4,57 @@ import sys
 
 import numpy as np
 import cv2
-from mmocr.apis import MMOCRInferencer
 
 # Append path of parent directory to system to import all modules correctly
 parent_dir = os.path.abspath(os.path.join(__file__, os.pardir, os.pardir))
-sys.path.append(parent_dir)
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
 
 # pylint: disable=wrong-import-position
 from ocr.ocr_reading import OCRReading
+from ocr.easyocr_inference import ocr_easyocr
 from geometry.warp_ellipse import warp_ellipse_to_circle, map_point_original_image,\
       map_point_transformed_image
 
+_MMOCR_MODEL = None
 
-def ocr(img, visualize=True):
+
+def get_mmocr_inferencer():
     """
-    Detect and recognize the characters in the image
+    Returns a cached MMOCRInferencer instance.
+    """
+    global _MMOCR_MODEL
+    if _MMOCR_MODEL is None:
+        from mmocr.apis import MMOCRInferencer
+        _MMOCR_MODEL = MMOCRInferencer(det='DB_r18', rec='ABINet')
+    return _MMOCR_MODEL
+
+
+def ocr(img, visualize=True, ocr_model='mmocr'):
+    """
+    Detect and recognize characters in the image.
+    Supports either MMOCR or EasyOCR.
+
     :param img: numpy img to do ocr on
     :param visualize: bool if to return image with visualization in results dict
-    :return: ocr_results_dict with two keys: 'predictions' what we care about
-     and 'visualization' the image for debugging/understanding
+    :param ocr_model: str, 'mmocr' or 'easyocr'
+    :return: (readings, visualization) if visualize else readings
     """
-    ocr_model = MMOCRInferencer(det='DB_r18', rec='ABINet')
+    ocr_model_lower = str(ocr_model).lower()
+    if ocr_model_lower in ['easyocr', 'easy_ocr']:
+        return ocr_easyocr(img, visualize=visualize)
 
+    # Default to MMOCR
+    inferencer = get_mmocr_inferencer()
     readings = []
+    visualization = img.copy() if visualize else None
 
     # MMOCR seems to throw error if no text detected
     try:
-        results = ocr_model(img, return_vis=visualize)
+        results = inferencer(img, return_vis=visualize)
 
-        visualization = results['visualization'][0]
+        if visualize and 'visualization' in results and len(results['visualization']) > 0:
+            visualization = results['visualization'][0]
 
         polygons = results['predictions'][0]['det_polygons']
 
@@ -51,8 +73,8 @@ def ocr(img, visualize=True):
             reading = OCRReading(shapes[index], texts[index], score)
             readings.append(reading)
 
-    except IndexError:
-        print("nothing detected")
+    except (IndexError, KeyError, Exception) as e:
+        print(f"MMOCR detection notice: {e}")
 
     if visualize:
         return readings, visualization
@@ -61,14 +83,11 @@ def ocr(img, visualize=True):
 
 
 def ocr_warp(image, zero_point, ellipse_params, plotter, debug, multiple_rot,
-             zero_point_rot):
+             zero_point_rot, ocr_model='mmocr'):
 
     x0, y0, ap, bp, phi = ellipse_params
 
     ellipse_center = [x0, y0]
-
-    # uncomment following line to check if ellipse is resized correctly
-    # plotter.plot_just_ellipse(image, ellipse_params, "resize")
 
     # warp the image
     warp_image, transformation_matrix = warp_ellipse_to_circle(
@@ -85,13 +104,13 @@ def ocr_warp(image, zero_point, ellipse_params, plotter, debug, multiple_rot,
     # run through ocr detection with rotation
     if multiple_rot:
         ocr_readings, ocr_visualization, rot_angle = ocr_rotations(
-            warp_image, plotter, debug)
+            warp_image, plotter, debug, ocr_model=ocr_model)
     elif zero_point_rot:
         ocr_readings, ocr_visualization, rot_angle = ocr_single_rotation(
             warp_image, warped_zero_point, warped_ellipse_center, plotter,
-            debug)
+            debug, ocr_model=ocr_model)
     else:
-        ocr_readings, ocr_visualization = ocr(warp_image, visualize=True)
+        ocr_readings, ocr_visualization = ocr(warp_image, visualize=True, ocr_model=ocr_model)
 
     # remap the ocr readings from warped image to original image
     for ocr_reading in ocr_readings:
@@ -109,17 +128,21 @@ def ocr_warp(image, zero_point, ellipse_params, plotter, debug, multiple_rot,
     return ocr_readings, ocr_visualization
 
 
-def ocr_rotations(img, plotter, debug):
+def ocr_rotations(img, plotter, debug, ocr_model='mmocr'):
     degree_list = [0, 45, 90, 135, 180, 225, 270, 315]
 
     max_conf = -1
     max_num_of_numericals = -1
     max_unit_detected = False
+    best_ocr_readings = []
+    best_ocr_visualization = img.copy()
+    best_degree = 0
+    best_rot_img = img
 
     # try different rotations.
     for degree in degree_list:
         rot_img = rotate(img, degree)
-        ocr_readings, ocr_visualization = ocr(rot_img, visualize=True)
+        ocr_readings, ocr_visualization = ocr(rot_img, visualize=True, ocr_model=ocr_model)
         if debug:
             plotter.plot_ocr_visualization(ocr_visualization, degree)
 
@@ -154,7 +177,7 @@ def ocr_rotations(img, plotter, debug):
             best_degree = degree
             best_rot_img = rot_img
 
-    #rotate the ocr reading polygons back to the unrotated image. Rotate each point individually
+    # rotate the ocr reading polygons back to the unrotated image. Rotate each point individually
     height, width = best_rot_img.shape[:2]
     for ocr_reading in best_ocr_readings:
         polygon = ocr_reading.polygon
@@ -169,7 +192,7 @@ def ocr_rotations(img, plotter, debug):
     return best_ocr_readings, best_ocr_visualization, best_degree
 
 
-def ocr_single_rotation(img, zero_point, ellipse_center, plotter, debug):
+def ocr_single_rotation(img, zero_point, ellipse_center, plotter, debug, ocr_model='mmocr'):
     # rotation
     desired_angle = 90
 
@@ -196,9 +219,9 @@ def ocr_single_rotation(img, zero_point, ellipse_center, plotter, debug):
             rot_img, np.array([[rot_zero_x, rot_zero_y],
                                [center_x, center_y]]), "rotated_zero_point")
 
-    ocr_readings, ocr_visualization = ocr(rot_img, visualize=True)
+    ocr_readings, ocr_visualization = ocr(rot_img, visualize=True, ocr_model=ocr_model)
 
-    #rotate the ocr reading polygons back to the unrotated image. Rotate each point individually
+    # rotate the ocr reading polygons back to the unrotated image. Rotate each point individually
     for ocr_reading in ocr_readings:
         polygon = ocr_reading.polygon
         new_polygon = []

@@ -36,13 +36,14 @@ class Plotter:
         plt.imshow(self.image)
         path = os.path.join(self.run_path, f"image_{title}.jpg")
         plt.savefig(path)
-        # plt.show()
+        plt.close('all')
 
     def plot_any_image(self, img, title):
         plt.figure()
         plt.imshow(img)
         path = os.path.join(self.run_path, f"image_{title}.jpg")
         plt.savefig(path)
+        plt.close('all')
 
     def plot_point_img(self, img, points, title):
         plt.figure()
@@ -50,17 +51,16 @@ class Plotter:
         plt.scatter(points[:, 0], points[:, 1])
         path = os.path.join(self.run_path, f"image_{title}.jpg")
         plt.savefig(path)
+        plt.close('all')
 
     def plot_ocr_visualization(self, vis, degree=None):
-        plt.figure()
-        plt.imshow(vis)
         if degree is None:
             path = os.path.join(self.run_path,
                                 "ocr_visualization_results_chosen.jpg")
         else:
             path = os.path.join(self.run_path,
                                 f"ocr_visualization_results{degree}.jpg")
-        plt.savefig(path)
+        cv2.imwrite(path, vis)
 
     def plot_bounding_box_img(self, boxes):
         """
@@ -86,6 +86,7 @@ class Plotter:
 
         path = os.path.join(self.run_path, "bbox_results.jpg")
         plt.savefig(path)
+        plt.close('all')
 
     def plot_test_point(self, point, title):
         plt.figure(figsize=(12, 8))
@@ -97,6 +98,7 @@ class Plotter:
 
         path = os.path.join(self.run_path, f"{title}_point_result.jpg")
         plt.savefig(path)
+        plt.close('all')
 
     def plot_key_points(self, key_point_list):
         plt.figure(figsize=(12, 8))
@@ -129,7 +131,7 @@ class Plotter:
 
         path = os.path.join(self.run_path, "key_point_results.jpg")
         plt.savefig(path)
-        # plt.show()
+        plt.close('all')
 
     def plot_just_ellipse(self, image, ellipse_params, title):
         plt.figure()
@@ -138,6 +140,7 @@ class Plotter:
         plt.plot(x, y)  # plot ellipse
         path = os.path.join(self.run_path, f"ellipse_{title}.jpg")
         plt.savefig(path)
+        plt.close('all')
 
     def plot_ellipse(self,
                      points,
@@ -149,10 +152,7 @@ class Plotter:
         plot ellipse and points with annotations.
         points is a 2d numpy array with one point per row
         """
-        plt.figure()
-
-        fig, ax = plt.subplots()
-        fig.set_size_inches(8, 6)
+        fig, ax = plt.subplots(figsize=(8, 6))
 
         ax.imshow(self.image)
 
@@ -173,12 +173,12 @@ class Plotter:
                                       alpha=0.5,
                                       edgecolor='none'))
 
-        x, y = get_ellipse_pts(ellipse_params)
-        plt.plot(x, y)  # plot ellipse
+        x_pts, y_pts = get_ellipse_pts(ellipse_params)
+        ax.plot(x_pts, y_pts)  # plot ellipse
 
         path = os.path.join(self.run_path, f"ellipse_results_{title}.jpg")
         plt.savefig(path)
-        # plt.show()
+        plt.close('all')
 
     def plot_zero_point_ellipse(self, zero_point, start_end_point,
                                 ellipse_params):
@@ -186,21 +186,15 @@ class Plotter:
         plot ellipse and points with annotations.
         points is a 2d numpy array with one point per row
         """
-        plt.figure()
-
-        fig, ax = plt.subplots()
-        fig.set_size_inches(8, 6)
+        fig, ax = plt.subplots(figsize=(8, 6))
 
         ax.imshow(self.image)
-
-        x = start_end_point[:, 0]
-        y = start_end_point[:, 1]
 
         zero_point_color = '#41ff00'
         start_end_color = '#ff0000'
 
-        x, y = get_ellipse_pts(ellipse_params)
-        plt.plot(x, y)  # plot ellipse
+        x_pts, y_pts = get_ellipse_pts(ellipse_params)
+        ax.plot(x_pts, y_pts)  # plot ellipse
 
         x = start_end_point[:, 0]
         y = start_end_point[:, 1]
@@ -208,16 +202,16 @@ class Plotter:
 
         x = zero_point[0]
         y = zero_point[1]
-        ax.scatter(x, y, c=zero_point_color, s=100)  # plot start end point
+        ax.scatter(x, y, c=zero_point_color, s=100)  # plot zero point
 
         zero_patch = patches.Patch(color=zero_point_color, label='zero-point')
         start_end_patch = patches.Patch(color=start_end_color,
                                         label='Start and End Point')
-        plt.legend(handles=[zero_patch, start_end_patch])
+        ax.legend(handles=[zero_patch, start_end_patch])
 
         path = os.path.join(self.run_path, "ellipse_zero_point.jpg")
         plt.savefig(path)
-        # plt.show()
+        plt.close('all')
 
     def plot_project_points_ellipse(self, number_labels, ellipse_params):
         projected_points = []
@@ -231,7 +225,7 @@ class Plotter:
         projected_points_arr = np.array(projected_points)
 
         if len(projected_points) == 1:
-            np.expand_dims(projected_points_arr, axis=0)
+            projected_points_arr = np.expand_dims(projected_points_arr, axis=0)
 
         ocr_color = '#38761d'
         annotation_colors = [ocr_color for _ in annotations]
@@ -252,13 +246,10 @@ class Plotter:
             projected_points.append(proj_point)
             annotations.append(number.reading)
 
-        projected_points.append(needle_point)
+        projected_points.append(np.asarray(needle_point).reshape(2))
         annotations.append(reading)
 
-        projected_points_arr = np.array(projected_points)
-
-        if len(projected_points) == 1:
-            np.expand_dims(projected_points_arr, axis=0)
+        projected_points_arr = np.array(projected_points).reshape(-1, 2)
 
         ocr_color = '#38761d'
         final_reading_color = '#2b00ff'
@@ -272,12 +263,8 @@ class Plotter:
                           annotation_colors=annotation_colors)
 
     def plot_ocr(self, readings, title):
-        plt.figure()
-
         threshold = 0.9
-        fig, ax = plt.subplots()
-
-        fig.set_size_inches(8, 6)
+        fig, ax = plt.subplots(figsize=(8, 6))
 
         # Display the image using imshow
         ax.imshow(self.image)
@@ -299,10 +286,10 @@ class Plotter:
                             bbox=dict(facecolor='#ffffff',
                                       alpha=0.5,
                                       edgecolor='none'))
-        plt.title(f"ocr results {title}")
+        ax.set_title(f"ocr results {title}")
         path = os.path.join(self.run_path, f"ocr_results_{title}.jpg")
         plt.savefig(path)
-        # plt.show()
+        plt.close('all')
 
     def plot_segmented_line(self, x_coords, y_coords, x_start_end,
                             line_coeffs):
@@ -315,22 +302,19 @@ class Plotter:
 
         path = os.path.join(self.run_path, "segmentation_results.jpg")
         plt.savefig(path)
-
-        # plt.show()
+        plt.close('all')
 
     def plot_heatmaps(self, heatmaps):
-        plt.figure(figsize=(12, 8))
-
         titles = ['Start', 'Middle', 'End']
 
         if heatmaps.shape[0] == 1:
+            plt.figure()
             heatmap_plot = plt.imshow(heatmaps[0],
                                       cmap=plt.cm.viridis,
                                       vmin=0,
                                       vmax=1)
             plt.colorbar(heatmap_plot, shrink=0.5)
             plt.title('Predicted Heatmap')
-
         else:
             fig, (ax1, ax2, ax3) = plt.subplots(nrows=1,
                                                 ncols=3,
@@ -350,10 +334,9 @@ class Plotter:
                 axis[i].set_title(f'Predicted Heatmap {titles[i]}')
             fig.colorbar(im, ax=axis, shrink=0.8)
 
-        # plt.tight_layout()
         path = os.path.join(self.run_path, "heatmaps_results.jpg")
         plt.savefig(path)
-        # plt.show()
+        plt.close('all')
 
     def plot_linear_fit(self, ocr_numbers, needle, line):
         plt.figure()
@@ -377,6 +360,7 @@ class Plotter:
         # Show the plot
         path = os.path.join(self.run_path, "reading_line_fit.jpg")
         plt.savefig(path)
+        plt.close('all')
 
     def plot_linear_fit_ransac(self, ocr_numbers, needle, line, inlier_mask,
                                outlier_mask):
@@ -407,3 +391,4 @@ class Plotter:
         # Show the plot
         path = os.path.join(self.run_path, "reading_line_fit.jpg")
         plt.savefig(path)
+        plt.close('all')

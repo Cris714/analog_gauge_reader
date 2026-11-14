@@ -3,6 +3,14 @@ import numpy as np
 import cv2
 from scipy import odr
 
+_SEGMENTATION_MODELS = {}
+
+
+def get_segmentation_model(model_path='best.pt'):
+    if model_path not in _SEGMENTATION_MODELS:
+        _SEGMENTATION_MODELS[model_path] = YOLO(model_path)
+    return _SEGMENTATION_MODELS[model_path]
+
 
 def segment_gauge_needle(image, model_path='best.pt'):
     """
@@ -11,7 +19,7 @@ def segment_gauge_needle(image, model_path='best.pt'):
     :param model_path: path to yolov8 detection model
     :return: segmentation of needle
     """
-    model = YOLO(model_path)  # load model
+    model = get_segmentation_model(model_path)
 
     results = model.predict(
         image)  # run inference, detects gauge face and needle

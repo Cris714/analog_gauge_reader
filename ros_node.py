@@ -23,6 +23,7 @@ class AnalogGaugeReaderRos:
         self.round_decimals = rospy.get_param("~round_decimals", -1)
         self.latch = rospy.get_param("~latch", False)
         self.continuous = rospy.get_param("~continuous", False)
+        self.ocr_model = rospy.get_param("~ocr_model", "easyocr")
         self.debug = debug
 
         self.publishers = {}
@@ -65,7 +66,8 @@ class AnalogGaugeReaderRos:
                                                     segmentation_model_path=self.segmentation_model_path,
                                                     run_path=out_path,
                                                     debug=self.debug,
-                                                    eval_mode=False)]
+                                                    eval_mode=False,
+                                                    ocr_model=self.ocr_model)]
                 finally:
                     for i in range(2) if len(self.publishers.keys()) <= 1 else [1]:
                         for visual_result in os.listdir(out_path):

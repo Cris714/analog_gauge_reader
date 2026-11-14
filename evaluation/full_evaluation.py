@@ -265,8 +265,18 @@ def get_annotations_from_json(bbox_path, key_point_path, segmentation_path):
     return full_annotations
 
 
+def _json_default_converter(o):
+    if isinstance(o, (np.floating, np.float32, np.float64)):
+        return float(o)
+    if isinstance(o, (np.integer, np.int32, np.int64)):
+        return int(o)
+    if isinstance(o, np.ndarray):
+        return o.tolist()
+    return str(o)
+
+
 def write_json(path, dictionary):
-    result = json.dumps(dictionary, indent=4)
+    result = json.dumps(dictionary, indent=4, default=_json_default_converter)
     with open(path, "w") as outfile:
         outfile.write(result)
 
@@ -294,7 +304,7 @@ def get_predictions(run_path):
                         Pipeline failed before prediction could be made")
 
     outfile_path = os.path.join(run_path, "predictions_full_results.json")
-    predictions_json = json.dumps(prediction_results, indent=4)
+    predictions_json = json.dumps(prediction_results, indent=4, default=_json_default_converter)
     with open(outfile_path, "w") as outfile:
         outfile.write(predictions_json)
 

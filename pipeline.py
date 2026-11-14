@@ -106,7 +106,8 @@ def rescale_ellipse_resize(ellipse_params, original_resolution,
 
 
 def process_image(image, detection_model_path, key_point_model_path,
-                  segmentation_model_path, run_path, debug, eval_mode, image_is_raw=False):
+                  segmentation_model_path, run_path, debug, eval_mode,
+                  image_is_raw=False, ocr_model='mmocr', ocr_threshold=None):
 
     result = []
     errors = {}
@@ -265,57 +266,67 @@ def process_image(image, detection_model_path, key_point_model_path,
 
     logging.info("Start OCR")
 
-    cropped_img_resolution = (cropped_img.shape[1], cropped_img.shape[0])
+    MAX_OCR_DIM = 1024
+    h_crop, w_crop = cropped_img.shape[:2]
+    max_crop_dim = max(h_crop, w_crop)
+    if max_crop_dim > MAX_OCR_DIM:
+        scale_ocr = MAX_OCR_DIM / max_crop_dim
+        ocr_input_img = cv2.resize(cropped_img, (int(w_crop * scale_ocr), int(h_crop * scale_ocr)),
+                                   interpolation=cv2.INTER_AREA)
+    else:
+        ocr_input_img = cropped_img
+
+    ocr_img_resolution = (ocr_input_img.shape[1], ocr_input_img.shape[0])
 
     if RANDOM_ROTATIONS:
         ocr_readings, ocr_visualization, degree = ocr_rotations(
-            cropped_img, plotter, debug)
+            ocr_input_img, plotter, debug, ocr_model=ocr_model)
         logging.info("Rotate image by %s degrees", degree)
         if eval_mode:
             result_full[constants.OCR_ROTATION_KEY] = degree
     elif WARP_OCR:
         # resize the zero point and ellipse center to original resolution
         res_zero_point = list(
-            move_point_resize(zero_point, RESOLUTION, cropped_img_resolution))
+            move_point_resize(zero_point, RESOLUTION, ocr_img_resolution))
         res_ellipse_params = rescale_ellipse_resize(ellipse_params, RESOLUTION,
-                                                    cropped_img_resolution)
+                                                    ocr_img_resolution)
         # Here we use zero-point rotation
         if OCR_ROTATION:
             ocr_readings, ocr_visualization, degree = ocr_warp(
-                cropped_img, res_zero_point, res_ellipse_params, plotter,
-                debug, RANDOM_ROTATIONS, ZERO_POINT_ROTATION)
+                ocr_input_img, res_zero_point, res_ellipse_params, plotter,
+                debug, RANDOM_ROTATIONS, ZERO_POINT_ROTATION, ocr_model=ocr_model)
             logging.info("Rotate image by %s degrees", degree)
             if eval_mode:
                 result_full[constants.OCR_ROTATION_KEY] = degree
         else:
             # pylint: disable-next=unbalanced-tuple-unpacking
             ocr_readings, ocr_visualization = ocr_warp(
-                cropped_img, res_zero_point, res_ellipse_params, plotter,
-                debug, RANDOM_ROTATIONS, ZERO_POINT_ROTATION)
+                ocr_input_img, res_zero_point, res_ellipse_params, plotter,
+                debug, RANDOM_ROTATIONS, ZERO_POINT_ROTATION, ocr_model=ocr_model)
     elif ZERO_POINT_ROTATION:
         # resize the zero point and ellipse center to original resolution
-        ellipse_x = ellipse_params[0] * cropped_img.shape[1] / RESOLUTION[1]
-        ellipse_y = ellipse_params[1] * cropped_img.shape[0] / RESOLUTION[0]
-        zero_point_x = zero_point[0] * cropped_img.shape[1] / RESOLUTION[1]
-        zero_point_y = zero_point[1] * cropped_img.shape[0] / RESOLUTION[0]
+        ellipse_x = ellipse_params[0] * ocr_input_img.shape[1] / RESOLUTION[1]
+        ellipse_y = ellipse_params[1] * ocr_input_img.shape[0] / RESOLUTION[0]
+        zero_point_x = zero_point[0] * ocr_input_img.shape[1] / RESOLUTION[1]
+        zero_point_y = zero_point[1] * ocr_input_img.shape[0] / RESOLUTION[0]
 
         ocr_readings, ocr_visualization, degree = ocr_single_rotation(
-            cropped_img, (zero_point_x, zero_point_y), (ellipse_x, ellipse_y),
-            plotter, debug)
+            ocr_input_img, (zero_point_x, zero_point_y), (ellipse_x, ellipse_y),
+            plotter, debug, ocr_model=ocr_model)
         logging.info("Rotate image by %s degrees", degree)
         if eval_mode:
             result_full[constants.OCR_ROTATION_KEY] = degree
     else:
         if debug:
-            ocr_readings, ocr_visualization = ocr(cropped_img, debug)
+            ocr_readings, ocr_visualization = ocr(ocr_input_img, debug, ocr_model=ocr_model)
         else:
-            ocr_readings = ocr(cropped_img, debug)
+            ocr_readings = ocr(ocr_input_img, debug, ocr_model=ocr_model)
 
     # resize detected ocr to our resized image.
     for reading in ocr_readings:
         polygon = reading.polygon
-        polygon[:, 0] = polygon[:, 0] * RESOLUTION[1] / cropped_img.shape[1]
-        polygon[:, 1] = polygon[:, 1] * RESOLUTION[0] / cropped_img.shape[0]
+        polygon[:, 0] = polygon[:, 0] * RESOLUTION[1] / ocr_input_img.shape[1]
+        polygon[:, 1] = polygon[:, 1] * RESOLUTION[0] / ocr_input_img.shape[0]
         reading.set_polygon(polygon)
 
     if debug:
@@ -346,9 +357,12 @@ def process_image(image, detection_model_path, key_point_model_path,
         result_full[constants.OCR_UNIT_KEY] = constants.MULTIPLE_FOUND
 
     # get list of ocr readings that are the numbers
+    effective_ocr_threshold = ocr_threshold if ocr_threshold is not None else (
+        0.3 if str(ocr_model).lower() in ['easyocr', 'easy_ocr'] else OCR_THRESHOLD
+    )
     number_labels = []
     for reading in ocr_readings:
-        if reading.is_number() and reading.confidence > OCR_THRESHOLD:
+        if reading.is_number() and reading.confidence > effective_ocr_threshold:
             # Add heuristics to filter out serial numbers
             if not (abs(reading.number) > 10000 or
                     (abs(reading.number) > 100 and reading.number % 10 != 0)):
@@ -440,6 +454,9 @@ def process_image(image, detection_model_path, key_point_model_path,
     if len(number_labels) == 1:
         logging.warning("Only found 1 number with ocr")
         errors[constants.OCR_ONLY_ONE_DETECTED_KEY] = True
+        result.append({constants.READING_KEY: constants.FAILED})
+        write_files(result, result_full, errors, run_path, eval_mode)
+        raise Exception("OCR failed, only 1 number found")
 
     for number in number_labels:
         theta = get_polar_angle(number.center, ellipse_params)
@@ -520,6 +537,9 @@ def process_image(image, detection_model_path, key_point_model_path,
     # ------------------Write result to file-------------------------
     write_files(result, result_full, errors, run_path, eval_mode)
 
+    import matplotlib.pyplot as plt
+    plt.close('all')
+
     return {"value": reading, "unit": unit}
 
 
@@ -536,8 +556,18 @@ def write_files(result, result_full, errors, run_path, eval_mode):
         write_json_file(result_full_path, result_full)
 
 
+def _json_default_converter(o):
+    if isinstance(o, (np.floating, np.float32, np.float64)):
+        return float(o)
+    if isinstance(o, (np.integer, np.int32, np.int64)):
+        return int(o)
+    if isinstance(o, np.ndarray):
+        return o.tolist()
+    return str(o)
+
+
 def write_json_file(filename, dictionary):
-    file_json = json.dumps(dictionary, indent=4)
+    file_json = json.dumps(dictionary, indent=4, default=_json_default_converter)
     with open(filename, "w") as outfile:
         outfile.write(file_json)
 
@@ -566,6 +596,9 @@ def main():
                         format='%(name)s - %(levelname)s - %(message)s',
                         level=logging.INFO)
 
+    ocr_model = args.ocr_model
+    ocr_threshold = args.ocr_threshold
+
     if os.path.isfile(input_path):
         image_name = os.path.basename(input_path)
         run_path = os.path.join(base_path, image_name)
@@ -575,7 +608,9 @@ def main():
                       segmentation_model,
                       run_path,
                       debug=args.debug,
-                      eval_mode=args.eval)
+                      eval_mode=args.eval,
+                      ocr_model=ocr_model,
+                      ocr_threshold=ocr_threshold)
     elif os.path.isdir(input_path):
         for image_name in os.listdir(input_path):
             img_path = os.path.join(input_path, image_name)
@@ -587,7 +622,9 @@ def main():
                               segmentation_model,
                               run_path,
                               debug=args.debug,
-                              eval_mode=args.eval)
+                              eval_mode=args.eval,
+                              ocr_model=ocr_model,
+                              ocr_threshold=ocr_threshold)
 
             # pylint: disable=broad-except
             # For now want to catch general exceptions and still continue with the other images.
@@ -631,6 +668,21 @@ def read_args():
                         help="Path where run folder is stored")
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--eval', action='store_true')
+    parser.add_argument(
+        '--ocr_model',
+        type=str,
+        required=False,
+        default='mmocr',
+        choices=['mmocr', 'easyocr', 'EasyOCR', 'MMOCR'],
+        help="OCR model to use: 'mmocr' or 'easyocr' (default: 'mmocr')"
+    )
+    parser.add_argument(
+        '--ocr_threshold',
+        type=float,
+        required=False,
+        default=None,
+        help="Confidence threshold for OCR numbers filtering"
+    )
     return parser.parse_args()
 
 
