@@ -69,6 +69,8 @@ def get_annotations_bbox(data):
                 k: annotation['value'][k]
                 for k in ('x', 'y', 'width', 'height')
             }
+            if 'text' in annotation['value']:
+                single_bbox_dict['text'] = annotation['value']['text']
             convert_bbox_annotation(single_bbox_dict, img_width, img_height)
 
             if annotation['value']['rectanglelabels'][
@@ -537,6 +539,10 @@ def main(bbox_path, key_point_path, segmentation_path, run_path):
     start_notch_metrics_list = []
     end_notch_metrics_list = []
     ocr_detections_list = []
+    ocr_net_numbers_list = []
+    ocr_total_numbers_list = []
+    ocr_net_comb_list = []
+    ocr_total_comb_list = []
 
     for image_name in annotations_dict:
 
@@ -609,16 +615,42 @@ def main(bbox_path, key_point_path, segmentation_path, run_path):
                                 plotter, eval_dict, False,
                                 end_notch_metrics_list)
 
-        # compare OCR number detection
-        if prediction_dict[constants.OCR_NUM_KEY] == constants.FAILED:
-            print("Skip failed ocr comparison")
-            eval_dict[constants.OCR_NUM_KEY] = constants.FAILED
-        else:
-            compare_ocr_numbers(annotation_dict[constants.OCR_NUM_KEY],
-                                prediction_dict[constants.OCR_NUM_KEY],
-                                plotter, eval_dict, ocr_detections_list)
+        # Compare OCR Numbers & Units (Detection + Robust Text Matching)
+        try:
+            from ocr_evaluation import evaluate_single_image_ocr, compute_global_statistics
+        except ImportError:
+            from evaluation.ocr_evaluation import evaluate_single_image_ocr, compute_global_statistics
+        
+        pred_num = prediction_dict.get(constants.OCR_NUM_KEY, [])
+        pred_unit = prediction_dict.get(constants.OCR_UNIT_KEY, None)
+        gt_num = annotation_dict.get(constants.OCR_NUM_KEY, [])
+        gt_unit = annotation_dict.get(constants.OCR_UNIT_KEY, None)
 
-        # compare OCR unit detection
+        if pred_num == constants.FAILED or pred_num is None:
+            pred_num = []
+        if pred_unit == constants.FAILED or pred_unit is None:
+            pred_unit = []
+
+        ocr_res = evaluate_single_image_ocr(gt_num, gt_unit, pred_num, pred_unit)
+        eval_dict["ocr_evaluation"] = ocr_res
+        
+        # Backward compatibility fields
+        eval_dict[constants.N_OCR_DETECTED_KEY] = ocr_res["numbers"]["n_detected"]
+        eval_dict[constants.PERCENTAGE_OCR_DETECTED_KEY] = ocr_res["numbers"]["detection_rate"]
+        
+        # New robust text matching metrics requested by user
+        eval_dict["ocr_net_quality_numbers"] = ocr_res["numbers"]["net_quality"]
+        eval_dict["ocr_total_score_numbers"] = ocr_res["numbers"]["total_score"]
+        eval_dict["ocr_net_quality_combined"] = ocr_res["combined"]["net_quality"]
+        eval_dict["ocr_total_score_combined"] = ocr_res["combined"]["total_score"]
+
+        ocr_detections_list.append(ocr_res["numbers"]["detection_rate"])
+        ocr_net_numbers_list.append(ocr_res["numbers"]["net_quality"])
+        ocr_total_numbers_list.append(ocr_res["numbers"]["total_score"])
+        ocr_net_comb_list.append(ocr_res["combined"]["net_quality"])
+        ocr_total_comb_list.append(ocr_res["combined"]["total_score"])
+
+        plotter.plot_bounding_box_img(gt_num, pred_num, 'scale marker detection')
 
         # compare needle segmentations
         if prediction_dict[constants.NEEDLE_MASK_KEY] == constants.FAILED:
@@ -668,6 +700,12 @@ def main(bbox_path, key_point_path, segmentation_path, run_path):
         },
         constants.OCR_NUM_KEY: ocr_detections_avg,
         constants.NEEDLE_IOU_KEY: needle_iou_avg,
+        "ocr_global_metrics": {
+            "net_quality_numbers": compute_global_statistics(ocr_net_numbers_list),
+            "total_score_numbers": compute_global_statistics(ocr_total_numbers_list),
+            "net_quality_combined": compute_global_statistics(ocr_net_comb_list),
+            "total_score_combined": compute_global_statistics(ocr_total_comb_list),
+        },
         "full_eval": full_eval_dict
     }
 

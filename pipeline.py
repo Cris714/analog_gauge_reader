@@ -350,11 +350,25 @@ def process_image(image, detection_model_path, key_point_model_path,
             'y': box[1],
             'width': box[2] - box[0],
             'height': box[3] - box[1],
+            'text': unit_readings[0].reading,
+            'confidence': float(unit_readings[0].confidence),
         }
     # if multiple detections add a list of these readings.
+    elif len(unit_readings) > 1:
+        unit = None
+        result_full[constants.OCR_UNIT_KEY] = [
+            {
+                'x': u.get_bounding_box()[0],
+                'y': u.get_bounding_box()[1],
+                'width': u.get_bounding_box()[2] - u.get_bounding_box()[0],
+                'height': u.get_bounding_box()[3] - u.get_bounding_box()[1],
+                'text': u.reading,
+                'confidence': float(u.confidence),
+            } for u in unit_readings
+        ]
     else:
         unit = None
-        result_full[constants.OCR_UNIT_KEY] = constants.MULTIPLE_FOUND
+        result_full[constants.OCR_UNIT_KEY] = constants.NOT_FOUND
 
     # get list of ocr readings that are the numbers
     effective_ocr_threshold = ocr_threshold if ocr_threshold is not None else (
@@ -384,6 +398,9 @@ def process_image(image, detection_model_path, key_point_model_path,
                 'y': box[1],
                 'width': box[2] - box[0],
                 'height': box[3] - box[1],
+                'text': number_label.reading,
+                'number': number_label.number,
+                'confidence': float(number_label.confidence),
             })
         result_full[constants.OCR_NUM_KEY] = ocr_bbox_list
 
