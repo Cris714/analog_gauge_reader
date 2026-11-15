@@ -372,7 +372,7 @@ def process_image(image, detection_model_path, key_point_model_path,
 
     # get list of ocr readings that are the numbers
     effective_ocr_threshold = ocr_threshold if ocr_threshold is not None else (
-        0.3 if str(ocr_model).lower() in ['easyocr', 'easy_ocr'] else OCR_THRESHOLD
+        0.3 if str(ocr_model).lower() in ['easyocr', 'easy_ocr', 'rapidocr', 'rapid_ocr', 'rapid'] else OCR_THRESHOLD
     )
     number_labels = []
     for reading in ocr_readings:
@@ -690,8 +690,8 @@ def read_args():
         type=str,
         required=False,
         default='mmocr',
-        choices=['mmocr', 'easyocr', 'EasyOCR', 'MMOCR'],
-        help="OCR model to use: 'mmocr' or 'easyocr' (default: 'mmocr')"
+        choices=['mmocr', 'easyocr', 'EasyOCR', 'MMOCR', 'rapidocr', 'RapidOCR'],
+        help="OCR model to use: 'mmocr', 'easyocr', or 'rapidocr' (default: 'mmocr')"
     )
     parser.add_argument(
         '--ocr_threshold',

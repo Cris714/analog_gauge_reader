@@ -13,6 +13,7 @@ if parent_dir not in sys.path:
 # pylint: disable=wrong-import-position
 from ocr.ocr_reading import OCRReading
 from ocr.easyocr_inference import ocr_easyocr
+from ocr.rapidocr_inference import ocr_rapidocr
 from geometry.warp_ellipse import warp_ellipse_to_circle, map_point_original_image,\
       map_point_transformed_image
 
@@ -33,14 +34,16 @@ def get_mmocr_inferencer():
 def ocr(img, visualize=True, ocr_model='mmocr'):
     """
     Detect and recognize characters in the image.
-    Supports either MMOCR or EasyOCR.
+    Supports MMOCR, EasyOCR, or RapidOCR.
 
     :param img: numpy img to do ocr on
     :param visualize: bool if to return image with visualization in results dict
-    :param ocr_model: str, 'mmocr' or 'easyocr'
+    :param ocr_model: str, 'mmocr', 'easyocr', or 'rapidocr'
     :return: (readings, visualization) if visualize else readings
     """
     ocr_model_lower = str(ocr_model).lower()
+    if ocr_model_lower in ['rapidocr', 'rapid_ocr', 'rapid']:
+        return ocr_rapidocr(img, visualize=visualize)
     if ocr_model_lower in ['easyocr', 'easy_ocr']:
         return ocr_easyocr(img, visualize=visualize)
 
@@ -109,6 +112,15 @@ def ocr_warp(image, zero_point, ellipse_params, plotter, debug, multiple_rot,
         ocr_readings, ocr_visualization, rot_angle = ocr_single_rotation(
             warp_image, warped_zero_point, warped_ellipse_center, plotter,
             debug, ocr_model=ocr_model)
+        # Fallback to unrotated warped image if rotation yielded fewer than 2 numbers
+        nums_detected = sum(1 for r in ocr_readings if r.is_number())
+        if nums_detected < 2:
+            unrot_readings, unrot_visualization = ocr(warp_image, visualize=True, ocr_model=ocr_model)
+            unrot_nums = sum(1 for r in unrot_readings if r.is_number())
+            if unrot_nums > nums_detected:
+                ocr_readings = unrot_readings
+                ocr_visualization = unrot_visualization
+                rot_angle = 0
     else:
         ocr_readings, ocr_visualization = ocr(warp_image, visualize=True, ocr_model=ocr_model)
 

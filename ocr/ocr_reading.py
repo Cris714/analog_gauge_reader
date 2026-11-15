@@ -21,6 +21,9 @@ class OCRReading:
     @staticmethod
     def _clean_number_str(s):
         cleaned = str(s).strip().replace(',', '.').replace('—', '-').replace('–', '-').replace('~', '-')
+        # Handle trailing hyphens like "500-" -> "500"
+        if cleaned.endswith('-') and len(cleaned) > 1 and cleaned[:-1].replace('.', '').isdigit():
+            cleaned = cleaned[:-1]
         # Handle detached minus signs like "- 10" or "-  5"
         if cleaned.startswith('- ') or cleaned.startswith('-  '):
             cleaned = '-' + cleaned.lstrip('- ')
